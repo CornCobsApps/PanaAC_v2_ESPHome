@@ -1175,30 +1175,36 @@ bool PanaACV2Climate::decode_state_(std::span<const uint8_t> state_bytes, Climat
 
   return true;
 }
+
 bool PanaACV2Climate::decode_and_apply_(std::span<const uint8_t> state_bytes) {
   // Handle short 8-byte command frames from older Panasonic remotes (e.g., CS-E9GKR / A75C series)
   if (state_bytes.size() == 8) {
     // Verify Panasonic header prefix and 8-bit sum checksum
-    if (state_bytes[0] != 0x02 || state_bytes[1] != 0x20 || state_bytes[2] != 0xE0 || state_bytes[3] != 0x04) {
+    if (state_bytes.data()[0] != 0x02 || state_bytes.data()[1] != 0x20 ||
+        state_bytes.data()[2] != 0xE0 || state_bytes.data()[3] != 0x04) {
       return false;
     }
     uint8_t checksum = 0;
     for (size_t i = 0; i < 7; i++) {
-      checksum += state_bytes[i];
+      checksum += state_bytes.data()[i];
     }
-    if (checksum != state_bytes[7]) {
-      ESP_LOGV(TAG, "Short frame checksum mismatch: expected 0x%02X, got 0x%02X", checksum, state_bytes[7]);
+    if (checksum != state_bytes.data()[7]) {
+      ESP_LOGV(TAG, "Short frame checksum mismatch: expected 0x%02X, got 0x%02X", checksum, state_bytes.data()[7]);
       return false;
     }
 
+    const uint8_t b4 = state_bytes.data()[4];
+    const uint8_t b5 = state_bytes.data()[5];
+    const uint8_t b6 = state_bytes.data()[6];
+
     // Standard 1st header frame (02 20 E0 04 00 00 00 06) — ignore silently
-    if (state_bytes[4] == 0x00 && state_bytes[5] == 0x00 && state_bytes[6] == 0x00) {
+    if (b4 == 0x00 && b5 == 0x00 && b6 == 0x00) {
       ESP_LOGV(TAG, "Ignored first frame!");
       return false;
     }
 
     // Quiet toggle command: 02 20 E0 04 80 81 33 3A
-    if (state_bytes[4] == 0x80 && state_bytes[5] == 0x81 && state_bytes[6] == 0x33) {
+    if (b4 == 0x80 && b5 == 0x81 && b6 == 0x33) {
       if (!this->supports_quiet_) {
         ESP_LOGV(TAG, "Quiet mode not supported");
         return false;
@@ -1220,21 +1226,21 @@ bool PanaACV2Climate::decode_and_apply_(std::span<const uint8_t> state_bytes) {
     }
 
     // Powerful toggle command: 02 20 E0 04 80 86 35 41
-    if (state_bytes[4] == 0x80 && state_bytes[5] == 0x86 && state_bytes[6] == 0x35) {
+    if (b4 == 0x80 && b5 == 0x86 && b6 == 0x35) {
       if (!this->supports_powerful_) {
         ESP_LOGV(TAG, "Powerful mode not supported");
         return false;
       }
       if (this->ac_state.preset == PANAAC_PRESET_POWERFUL) {
         this->ac_state.preset = PANAAC_PRESET_NONE;
-        if (this->ac_state.fan_level == PANAAC_POWERFUL) {
+        this->ac_state.fan_level = PANAAC_FAN_AUTO;
+        this->ac_state.fan_mode = climate::CLIMATE_FAN_AUTO;
+      } else if (mode_supports_preset(this->ac_state.mode)) {
+        this->ac_state.preset = PANAAC_PRESET_POWERFUL;
+        if (this->ac_state.fan_level == PANAAC_FAN_QUIET) {
           this->ac_state.fan_level = PANAAC_FAN_AUTO;
           this->ac_state.fan_mode = climate::CLIMATE_FAN_AUTO;
         }
-      } else if (mode_supports_preset(this->ac_state.mode)) {
-        this->ac_state.preset = PANAAC_PRESET_POWERFUL;
-        this->ac_state.fan_level = PANAAC_POWERFUL;
-        this->ac_state.fan_mode = climate::CLIMATE_FAN_HIGH;
       }
       ESP_LOGD(TAG, "Toggled Powerful preset -> %s",
                this->ac_state.preset == PANAAC_PRESET_POWERFUL ? "Powerful" : "None");
@@ -1243,7 +1249,7 @@ bool PanaACV2Climate::decode_and_apply_(std::span<const uint8_t> state_bytes) {
       return true;
     }
 
-    ESP_LOGV(TAG, "Unhandled 8-byte command: 0x%02X 0x%02X 0x%02X", state_bytes[4], state_bytes[5], state_bytes[6]);
+    ESP_LOGV(TAG, "Unhandled 8-byte command: 0x%02X 0x%02X 0x%02X", b4, b5, b6);
     return false;
   }
 
