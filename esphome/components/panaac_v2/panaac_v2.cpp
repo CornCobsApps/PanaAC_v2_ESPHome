@@ -1179,7 +1179,6 @@ bool PanaACV2Climate::decode_state_(std::span<const uint8_t> state_bytes, Climat
 bool PanaACV2Climate::decode_and_apply_(std::span<const uint8_t> state_bytes) {
   // Handle short 8-byte command frames from older Panasonic remotes (e.g., CS-E9GKR / A75C series)
   if (state_bytes.size() == 8) {
-    // Verify Panasonic header prefix and 8-bit sum checksum
     if (state_bytes.data()[0] != 0x02 || state_bytes.data()[1] != 0x20 ||
         state_bytes.data()[2] != 0xE0 || state_bytes.data()[3] != 0x04) {
       return false;
@@ -1202,6 +1201,17 @@ bool PanaACV2Climate::decode_and_apply_(std::span<const uint8_t> state_bytes) {
       ESP_LOGV(TAG, "Ignored first frame!");
       return false;
     }
+
+    // Debounce repeated 8-byte command frames sent within 400 ms of a single button press
+    static uint32_t last_short_cmd_ms = 0;
+    static uint8_t last_short_b5 = 0;
+    const uint32_t now = millis();
+    if (b5 == last_short_b5 && (now - last_short_cmd_ms) < 400) {
+      ESP_LOGV(TAG, "Ignored duplicate short frame (b5=0x%02X)", b5);
+      return false;
+    }
+    last_short_cmd_ms = now;
+    last_short_b5 = b5;
 
     // Quiet toggle command: 02 20 E0 04 80 81 33 3A
     if (b4 == 0x80 && b5 == 0x81 && b6 == 0x33) {
@@ -1233,13 +1243,16 @@ bool PanaACV2Climate::decode_and_apply_(std::span<const uint8_t> state_bytes) {
       }
       if (this->ac_state.preset == PANAAC_PRESET_POWERFUL) {
         this->ac_state.preset = PANAAC_PRESET_NONE;
-        this->ac_state.fan_level = PANAAC_FAN_AUTO;
-        this->ac_state.fan_mode = climate::CLIMATE_FAN_AUTO;
-      } else if (mode_supports_preset(this->ac_state.mode)) {
-        this->ac_state.preset = PANAAC_PRESET_POWERFUL;
-        if (this->ac_state.fan_level == PANAAC_FAN_QUIET) {
-          this->ac_state.fan_level = PANAAC_FAN_AUTO;
-          this->ac_state.fan_mode = climate::CLIMATE_FAN_AUTO;
+      } else {
+        if (this->ac_state.mode == climate::CLIMATE_MODE_OFF) {
+          this->ac_state.mode = climate::CLIMATE_MODE_AUTO;
+        }
+        if (mode_supports_preset(this->ac_state.mode)) {
+          this->ac_state.preset = PANAAC_PRESET_POWERFUL;
+          if (this->ac_state.fan_level == PANAAC_FAN_QUIET) {
+            this->ac_state.fan_level = PANAAC_FAN_AUTO;
+            this->ac_state.fan_mode = climate::CLIMATE_FAN_AUTO;
+          }
         }
       }
       ESP_LOGD(TAG, "Toggled Powerful preset -> %s",
