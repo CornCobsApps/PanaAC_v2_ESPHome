@@ -1175,11 +1175,10 @@ bool PanaACV2Climate::decode_state_(std::span<const uint8_t> state_bytes, Climat
 
   return true;
 }
-
 bool PanaACV2Climate::decode_and_apply_(std::span<const uint8_t> state_bytes) {
   // Handle short 8-byte command frames from older Panasonic remotes (e.g., CS-E9GKR / A75C series)
   if (state_bytes.size() == 8) {
-    // Verify Panasonic header prefix and XOR checksum
+    // Verify Panasonic header prefix and 8-bit sum checksum
     if (state_bytes[0] != 0x02 || state_bytes[1] != 0x20 || state_bytes[2] != 0xE0 || state_bytes[3] != 0x04) {
       return false;
     }
@@ -1210,7 +1209,6 @@ bool PanaACV2Climate::decode_and_apply_(std::span<const uint8_t> state_bytes) {
       } else {
         this->ac_state.fan_level = PANAAC_FAN_QUIET;
         this->ac_state.fan_mode = climate::CLIMATE_FAN_QUIET;
-        // Quiet and Powerful are mutually exclusive on Panasonic ACs
         if (this->ac_state.preset == PANAAC_PRESET_POWERFUL) {
           this->ac_state.preset = PANAAC_PRESET_NONE;
         }
@@ -1229,13 +1227,13 @@ bool PanaACV2Climate::decode_and_apply_(std::span<const uint8_t> state_bytes) {
       }
       if (this->ac_state.preset == PANAAC_PRESET_POWERFUL) {
         this->ac_state.preset = PANAAC_PRESET_NONE;
-        if (this->ac_state.fan_level == PANAAC_FAN_POWERFUL) {
+        if (this->ac_state.fan_level == PANAAC_POWERFUL) {
           this->ac_state.fan_level = PANAAC_FAN_AUTO;
           this->ac_state.fan_mode = climate::CLIMATE_FAN_AUTO;
         }
       } else if (mode_supports_preset(this->ac_state.mode)) {
         this->ac_state.preset = PANAAC_PRESET_POWERFUL;
-        this->ac_state.fan_level = PANAAC_FAN_POWERFUL;
+        this->ac_state.fan_level = PANAAC_POWERFUL;
         this->ac_state.fan_mode = climate::CLIMATE_FAN_HIGH;
       }
       ESP_LOGD(TAG, "Toggled Powerful preset -> %s",
