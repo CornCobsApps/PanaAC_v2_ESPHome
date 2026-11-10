@@ -979,11 +979,7 @@ bool PanaACV2Climate::on_receive(remote_base::RemoteReceiveData data) {
   const auto &raw_data = data.get_raw_data();
   ESP_LOGV(TAG, "Received raw data size = %d", raw_data.size());
 
-  if (raw_data.size() == 132) {  // fixed 1st frame
-    ESP_LOGV(TAG, "Ignored first frame!");
-    return false;
-  }
-  if (raw_data.size() != 308 && raw_data.size() != 440) {
+  if (raw_data.size() != 132 && raw_data.size() != 308 && raw_data.size() != 440) {
     ESP_LOGV(TAG, "Unexpected data length received: %d", raw_data.size());
     return false;
   }
@@ -1008,7 +1004,7 @@ bool PanaACV2Climate::decode_data_(remote_base::RemoteReceiveData data, std::arr
                                    size_t &state_len) {
   const auto &raw_data = data.get_raw_data();
 
-  if (raw_data.size() != 308 && raw_data.size() != 440)
+  if (raw_data.size() != 132 && raw_data.size() != 308 && raw_data.size() != 440)
     return false;
 
   if (!data.expect_item(PANAAC_HEADER_MARK, PANAAC_HEADER_SPACE)) {
@@ -1076,7 +1072,7 @@ bool PanaACV2Climate::decode_state_(std::span<const uint8_t> state_bytes, Climat
     ESP_LOGV(TAG, "Invalid checksum");
     return false;
   }
-
+  
   // operation mode
   if ((state_bytes[PANAAC_BYTEPOS_POWER] & PANAAC_POWER_MASK) == PANAAC_POWER_OFF) {
     state.mode = climate::CLIMATE_MODE_OFF;
